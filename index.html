@@ -1,1241 +1,756 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
-<title>How Docker works</title>
-<meta name="description" content="Interactive explainer of how Docker works on your Linux workstation: shared kernel vs virtual machines, namespaces and cgroups, layered read-only images, bind mounts and port forwarding, isolated Postgres per app, GPU passthrough, and rootful vs rootless setups.">
-<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
-<style>
-@font-face{
-  font-family:'Instrument Sans';font-style:normal;font-weight:400 700;font-stretch:100%;
-  font-display:swap;
-  src:url('assets/fonts/instrument-sans-latin.woff2') format('woff2');
-  unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
-}
-@font-face{
-  font-family:'Instrument Sans';font-style:normal;font-weight:400 700;font-stretch:100%;
-  font-display:swap;
-  src:url('assets/fonts/instrument-sans-latin-ext.woff2') format('woff2');
-  unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C4,U+2113,U+2C60-2C7F,U+A720-A7FF;
-}
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark light" />
+  <title>How Docker works</title>
+  <meta name="description" content="A simple interactive diagram showing what a Docker container does on this Ubuntu 26.04 workstation, and which of your services belong inside one." />
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
 
-:root{
-  --bg:#fbfbfa;
-  --panel:#ffffff;
-  --panel2:#f2f5f8;
-  --line:#dfe5ec;
-  --line-strong:#b7c3d0;
-  --ink:#0f172a;
-  --muted:#5b6b7c;
-  --dim:#5e6d7e;
-  --chip-bg:#d6d3d1;
-  --chip-ink:#3f3f46;
+  <style>
+    @font-face {
+      font-family: 'Figtree';
+      font-style: normal;
+      font-weight: 300 900;
+      font-display: swap;
+      src: url('assets/fonts/figtree-latin-wght-normal.woff2') format('woff2');
+      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+    }
+    @font-face {
+      font-family: 'Figtree';
+      font-style: normal;
+      font-weight: 300 900;
+      font-display: swap;
+      src: url('assets/fonts/figtree-latin-ext-wght-normal.woff2') format('woff2');
+      unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+    }
 
-  --accent:#2b6cb0;
-  --accent-tint:#2b6cb014;
-  --hot:#b45309;
-  --hot-tint:#b4530914;
-  --good:#15803d;
-  --good-tint:#15803d14;
-  --bad:#b91c1c;
-  --bad-tint:#b91c1c12;
-  --sel:#cfe3f5;
+    :root {
+      color-scheme: dark;
 
-  --mono:ui-monospace,'SF Mono',SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace;
-  --sans:'Instrument Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-  --r:6px;
-}
+      --body: #111112;
+      --surface: #1f1f22;
+      --raised: #28292c;
+      --level: #1a1b1d;
+      --seg-on: #3a3c40;
+      --line: rgba(242, 244, 246, 0.10);
+      --line-strong: #494d53;
 
-@media (prefers-color-scheme: dark){
-  :root{
-    --bg:#0d1117;
-    --panel:#161b22;
-    --panel2:#1b2129;
-    --line:#242a31;
-    --line-strong:#3b4650;
-    --ink:#e6edf3;
-    --muted:#8b949e;
-    --dim:#848d97;
-    --chip-bg:#333a41;
-    --chip-ink:#d3d8dd;
+      --ink: #e7eaed;
+      --ink-2: #aaafb5;
+      --ink-3: #8a9099;
 
-    --accent:#58a6ff;
-    --accent-tint:#58a6ff14;
-    --hot:#e3b341;
-    --hot-tint:#e3b34114;
-    --good:#3fb950;
-    --good-tint:#3fb95014;
-    --bad:#f85149;
-    --bad-tint:#f8514912;
-    --sel:#1f6feb55;
-  }
-}
+      --accent: #ff8a3f;
+      --accent-strong: #eb6e00;
+      --accent-tint: rgba(242, 121, 2, 0.18);
+      --accent-ink: #0a1317;
 
-*{box-sizing:border-box;}
-html,body{margin:0;height:100%;}
-html{scrollbar-color:var(--line-strong) transparent;}
-::-webkit-scrollbar{width:10px;height:10px;}
-::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:6px;border:3px solid var(--bg);}
-::-webkit-scrollbar-track{background:transparent;}
-body{
-  background:var(--bg);color:var(--ink);
-  font-family:var(--sans);font-size:14px;line-height:1.5;
-  height:100vh;overflow:hidden;-webkit-font-smoothing:antialiased;
-}
-::selection{background:var(--sel);color:var(--ink);}
-:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
-button{font:inherit;color:inherit;cursor:pointer;touch-action:manipulation;}
-input{font:inherit;color:inherit;touch-action:manipulation;}
-.mono{font-family:var(--mono);}
-.num{font-variant-numeric:tabular-nums;}
+      --ok: #24bb5e;
+      --ok-ink: #a5f690;
+      --ok-tint: rgba(36, 187, 94, 0.18);
+      --warn: #e9af08;
+      --warn-ink: #fbce03;
+      --warn-tint: rgba(226, 164, 0, 0.20);
 
-.app{width:100vw;height:100vh;display:flex;flex-direction:column;}
+      --chip-bg: #333a41;
+      --chip-ink: #d3d8dd;
 
-/* ---------------- header ---------------- */
-.top{
-  flex:0 0 auto;display:flex;align-items:baseline;gap:14px;
-  padding:12px 20px;border-bottom:1px solid var(--line);background:var(--panel);
-}
-.top h1{font-size:17px;font-weight:650;margin:0;letter-spacing:-.015em;}
-.top .sub{color:var(--muted);font-size:13px;}
-.top .p{
-  margin-left:auto;font-family:var(--mono);font-size:11.5px;color:var(--dim);
-  white-space:nowrap;font-variant-numeric:tabular-nums;
-}
+      --r-inner: 8px;
+      --r-element: 12px;
+      --r-container: 16px;
+      --r-page: 28px;
+      --r-pill: 999px;
 
-/* ---------------- main ---------------- */
-.main{flex:1;min-height:0;display:grid;grid-template-columns:288px 1fr;}
-.side{grid-column:1;grid-row:1;display:flex;flex-direction:column;min-height:0;background:var(--panel);}
-.stage-col{grid-column:2;grid-row:1;display:flex;flex-direction:column;min-width:0;min-height:0;border-left:1px solid var(--line);}
-.stage-head{
-  flex:0 0 auto;display:flex;align-items:baseline;gap:12px;
-  padding:11px 22px 7px;
-}
-.stage-head h2{font-size:18px;font-weight:600;margin:0;letter-spacing:-.015em;}
-.stage-head .meta{
-  margin-left:auto;font-size:12px;font-weight:600;padding:1px 7px;border-radius:4px;
-  background:var(--chip-bg);color:var(--chip-ink);font-variant-numeric:tabular-nums;white-space:nowrap;
-}
-.stage{flex:1;min-height:0;overflow:auto;padding:2px 22px 14px;display:flex;flex-direction:column;}
-.views{display:flex;flex-direction:column;gap:11px;max-width:880px;width:100%;margin:auto 0;}
+      --s-1: 6px;
+      --s-2: 12px;
+      --s-3: 18px;
+      --s-4: 24px;
+      --s-5: 30px;
+      --s-6: 36px;
 
-/* ---------------- shared pieces ---------------- */
-.row{
-  display:grid;grid-template-columns:156px 1fr auto;gap:14px;align-items:baseline;
-  padding:6px 0;border-bottom:1px solid var(--line);
-}
-.row:first-child{border-top:1px solid var(--line);}
-.row .k{font-family:var(--mono);font-size:12px;color:var(--muted);}
-.row .v{color:var(--ink);font-size:13.5px;}
-.row .w{font-family:var(--mono);font-size:12px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums;}
-.row.new .k{color:var(--accent);font-weight:600;}
-.row.new .v{font-weight:600;}
-.row.good .w{color:var(--good);font-weight:600;}
-.row.hot .w{color:var(--hot);font-weight:600;}
-.row.bad .w{color:var(--bad);font-weight:600;}
+      --fs-xs: 13px;
+      --fs-sm: 14px;
+      --fs-base: 16px;
+      --fs-lg: 20px;
+      --fs-xl: 25px;
+      --fs-2xl: 31px;
 
-.line{font-family:var(--mono);font-size:12px;color:var(--muted);margin:0;line-height:1.65;max-width:74ch;}
-.line b{color:var(--ink);font-weight:600;}
-.line .hot{color:var(--hot);font-weight:600;}
-.line .acc{color:var(--accent);font-weight:600;}
-.line .good{color:var(--good);font-weight:600;}
-.line .bad{color:var(--bad);font-weight:600;}
+      --mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+      --e-fast: 120ms;
+      --e-med: 220ms;
+    }
 
-.panel{border:1px solid var(--line);border-radius:var(--r);background:var(--panel);padding:10px 13px;}
-.panel > .ph{
-  display:flex;align-items:baseline;justify-content:space-between;gap:8px;
-  font-size:12px;font-weight:600;color:var(--muted);margin-bottom:7px;
-}
-.panel > .ph .badge{
-  font-size:11px;font-weight:600;padding:1px 6px;border-radius:4px;
-  background:var(--chip-bg);color:var(--chip-ink);font-variant-numeric:tabular-nums;
-}
-.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;align-items:start;}
-.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;align-items:start;}
+    @media (prefers-color-scheme: light) {
+      :root {
+        color-scheme: light;
 
-/* ---------------- figures (inline svg) ---------------- */
-.fig{width:100%;max-height:166px;height:auto;display:block;overflow:visible;}
-.fig text{font-family:var(--mono);font-size:11px;fill:var(--muted);}
-.fig .hd{font-family:var(--sans);font-size:12.5px;font-weight:600;fill:var(--ink);}
-.fig .lg{font-family:var(--mono);font-size:14px;font-weight:600;fill:var(--ink);}
-.fig .sm{font-size:11px;fill:var(--dim);}
-.fig .acc{fill:var(--accent);font-weight:600;}
-.fig .hot{fill:var(--hot);font-weight:600;}
-.fig .good{fill:var(--good);font-weight:600;}
-.fig .bad{fill:var(--bad);font-weight:600;}
-.fig .box{fill:var(--panel);stroke:var(--line);stroke-width:1;}
-.fig .box2{fill:var(--panel2);stroke:var(--line);stroke-width:1;}
-.fig .boxa{fill:var(--accent-tint);stroke:var(--accent);stroke-width:1.2;}
-.fig .boxh{fill:var(--hot-tint);stroke:var(--hot);stroke-width:1.2;}
-.fig .boxg{fill:var(--good-tint);stroke:var(--good);stroke-width:1.2;}
-.fig .boxe{fill:var(--bad-tint);stroke:var(--bad);stroke-width:1.2;}
-.fig .wire{stroke:var(--line-strong);stroke-width:1.2;fill:none;}
-.fig .wira{stroke:var(--accent);stroke-width:1.5;fill:none;stroke-linecap:round;stroke-linejoin:round;}
-.fig .wirh{stroke:var(--hot);stroke-width:1.5;fill:none;stroke-linecap:round;}
-.fig .wirg{stroke:var(--good);stroke-width:1.5;fill:none;stroke-linecap:round;}
-.fig .rail{stroke:var(--line-strong);stroke-width:1;stroke-dasharray:4 4;fill:none;}
+        --body: #f1f4f7;
+        --surface: #ffffff;
+        --raised: #ffffff;
+        --level: #f7f9fb;
+        --seg-on: #ffffff;
+        --line: rgba(5, 54, 89, 0.11);
+        --line-strong: #b8c2cc;
 
-/* ---------------- interactive controls inside stage ---------------- */
-.ctl-bar{
-  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
-  padding:9px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);
-}
-.ctl-bar label{font-size:12.5px;font-weight:600;color:var(--ink);white-space:nowrap;}
-.ctl-bar .readout{
-  margin-left:auto;font-family:var(--mono);font-size:12px;font-weight:600;color:var(--accent);
-  font-variant-numeric:tabular-nums;
-}
-.seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--panel2);flex-wrap:wrap;}
-.seg button{
-  border:0;background:transparent;padding:5px 11px;font-size:12px;font-weight:600;color:var(--muted);
-}
-.seg button + button{border-left:1px solid var(--line);}
-.seg button.on{background:var(--panel);color:var(--ink);}
-.seg button:hover:not(.on){opacity:.8;}
+        --ink: #0a1317;
+        --ink-2: #4e606f;
+        --ink-3: #647482;
 
-.btn-act{
-  background:var(--bg);border:1px solid var(--line-strong);border-radius:var(--r);
-  padding:5px 11px;font-size:12px;font-weight:600;color:var(--ink);
-}
-.btn-act:hover{opacity:.8;border-color:var(--accent);}
-.btn-act.on{border-color:var(--accent);background:var(--accent-tint);color:var(--accent);}
+        --accent: #d96200;
+        --accent-strong: #b34a01;
+        --accent-tint: rgba(242, 121, 2, 0.13);
+        --accent-ink: #ffffff;
 
-/* ---------------- tables ---------------- */
-.tbl{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums;}
-.tbl th{
-  text-align:left;font-family:var(--sans);font-weight:600;color:var(--muted);font-size:11.5px;
-  padding:0 10px 7px 0;border-bottom:1px solid var(--line);
-}
-.tbl td{padding:7px 10px 7px 0;border-bottom:1px solid var(--line);color:var(--muted);}
-.tbl tr:last-child td{border-bottom:0;}
-.tbl td.n{color:var(--ink);font-weight:600;}
-.tbl td.good{color:var(--good);font-weight:600;}
-.tbl td.hot{color:var(--hot);font-weight:600;}
-.tbl td.acc{color:var(--accent);font-weight:600;}
-.tbl tr.hl td{color:var(--ink);background:var(--accent-tint);}
-.tbl tr.hl td:first-child{padding-left:6px;}
-.tbl tr.click{cursor:pointer;}
-.tbl tr.click:hover td{color:var(--ink);}
+        --ok: #0d8626;
+        --ok-ink: #09441f;
+        --ok-tint: rgba(36, 187, 94, 0.15);
+        --warn: #b57800;
+        --warn-ink: #753f07;
+        --warn-tint: rgba(226, 164, 0, 0.16);
 
-/* ---------------- bars ---------------- */
-.bars{display:flex;flex-direction:column;gap:7px;}
-.bar{display:grid;grid-template-columns:170px 1fr 76px;gap:12px;align-items:center;}
-.bar .bl{font-family:var(--mono);font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.bar .bt{height:14px;background:var(--panel2);border-radius:3px;overflow:hidden;}
-.bar .bf{
-  display:block;height:100%;background:var(--accent);transform-origin:left center;
-  transform:scaleX(0);transition:transform .35s cubic-bezier(.16,1,.3,1);
-}
-.bar .bv{font-family:var(--mono);font-size:11.5px;color:var(--dim);text-align:right;font-variant-numeric:tabular-nums;}
-.bar.good .bf{background:var(--good);}
-.bar.hot .bf{background:var(--hot);}
-.bar.bad .bf{background:var(--bad);}
+        --chip-bg: #d6d3d1;
+        --chip-ink: #1c1917;
+      }
+    }
 
-/* ---------------- narration ---------------- */
-.narr{flex:0 0 auto;padding:12px 22px 14px;border-top:1px solid var(--line);background:var(--panel);}
-.narr p{margin:0;font-size:13.5px;color:var(--muted);max-width:74ch;line-height:1.55;}
-.narr b{color:var(--ink);font-weight:600;}
+    * { box-sizing: border-box; }
+    html { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: var(--r-pill); }
+    ::selection { background: var(--accent-tint); color: var(--ink); }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-inner); }
 
-/* ---------------- step list ---------------- */
-.side .sh{
-  flex:0 0 auto;display:flex;align-items:baseline;justify-content:space-between;
-  padding:14px 16px 8px;font-size:12px;font-weight:600;color:var(--muted);
-}
-.steps{flex:1;min-height:0;overflow:auto;padding:0 8px 14px;}
-.step{
-  display:grid;grid-template-columns:22px 1fr;gap:8px;align-items:baseline;width:100%;
-  text-align:left;background:transparent;border:1px solid transparent;border-radius:var(--r);
-  padding:6px 8px;color:var(--muted);font-size:12.5px;line-height:1.35;
-}
-.step:hover{color:var(--ink);}
-.step .n{font-family:var(--mono);font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums;}
-.step.on{background:var(--bg);border-color:var(--line);color:var(--ink);font-weight:600;}
-.step.on .n{color:var(--accent);}
+    body {
+      margin: 0;
+      background: var(--body);
+      color: var(--ink);
+      font-family: 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: var(--fs-base);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
 
-/* ---------------- controls ---------------- */
-.controls{
-  flex:0 0 auto;display:flex;align-items:center;gap:10px;
-  padding:10px 20px;border-top:1px solid var(--line);background:var(--panel);
-}
-.ctrl{
-  background:var(--bg);border:1px solid var(--line);border-radius:var(--r);
-  padding:6px 14px;font-size:13px;font-weight:550;transition:opacity .15s ease-out,border-color .15s ease-out;
-}
-.ctrl:hover:not(:disabled){opacity:.8;border-color:var(--line-strong);}
-.ctrl:disabled{opacity:.38;cursor:default;}
-.ctrl.play{border-color:var(--good);color:var(--good);}
-.prog{flex:1;height:3px;background:var(--panel2);border-radius:2px;overflow:hidden;}
-.prog i{
-  display:block;height:100%;background:var(--accent);transform-origin:left center;
-  transform:scaleX(0);transition:transform .3s cubic-bezier(.16,1,.3,1);
-}
-.cnt{
-  font-size:12px;font-weight:600;padding:1px 7px;border-radius:4px;
-  background:var(--chip-bg);color:var(--chip-ink);font-variant-numeric:tabular-nums;white-space:nowrap;
-}
+    h1, h2, h3, p { margin: 0; }
+    button { font-family: inherit; touch-action: manipulation; }
+    .mono { font-family: var(--mono); }
+    .tnum { font-variant-numeric: tabular-nums; }
 
-@media (prefers-reduced-motion: reduce){
-  *{transition-duration:.01ms !important;animation-duration:.01ms !important;}
-}
-@media (max-width:960px){
-  body{height:auto;overflow:auto;}
-  .app{height:auto;min-height:100vh;}
-  .main{display:flex;flex-direction:column;}
-  .stage{overflow:visible;}
-  .side{border-top:1px solid var(--line);}
-  .stage-col{border-left:0;}
-  .steps{overflow:visible;}
-  .controls{flex-wrap:wrap;}
-}
-@media (max-width:640px){
-  body{font-size:15px;}
-  .top{flex-wrap:wrap;gap:6px 12px;}
-  .top .p{display:none;}
-  .stage-head{padding:12px 14px 8px;}
-  .stage{padding:2px 14px 18px;}
-  .narr{padding:12px 14px 14px;}
-  .row{grid-template-columns:110px 1fr;}
-  .row .w{grid-column:2;justify-self:start;}
-  .bar{grid-template-columns:120px 1fr 64px;}
-}
-</style>
+    /* ---- Top Nav -------------------------------------------------- */
+    .ax-topnav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--s-3);
+      padding: 0 var(--s-5);
+      height: 48px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--line);
+    }
+    .ax-topnav .brand {
+      font-size: var(--fs-base);
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+    .ax-topnav .specs {
+      display: flex;
+      align-items: center;
+      gap: var(--s-2);
+      flex-wrap: wrap;
+      font-size: var(--fs-xs);
+      color: var(--ink-2);
+    }
+
+    /* ---- Badges & Count Chips ------------------------------------- */
+    .ax-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 22px;
+      padding: 0 9px;
+      border-radius: var(--r-pill);
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .ax-badge.accent { background: var(--accent-tint); color: var(--accent); }
+    .ax-badge.ok { background: var(--ok-tint); color: var(--ok-ink); }
+    .ax-badge.warn { background: var(--warn-tint); color: var(--warn-ink); }
+
+    .count-chip {
+      display: inline-block;
+      padding: 1px 7px;
+      border-radius: 4px;
+      background: var(--chip-bg);
+      color: var(--chip-ink);
+      font-size: 12px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* ---- Main Shell ----------------------------------------------- */
+    .ax-shell {
+      max-width: 1220px;
+      margin: 0 auto;
+      padding: 14px var(--s-5);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    /* ---- Hero Section (Interactive Machine Map) ------------------- */
+    .ax-section {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      padding: 14px var(--s-4);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .ax-head-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--s-3);
+    }
+    .ax-head-copy {
+      min-width: 0;
+      flex: 1;
+    }
+    .ax-head-copy h1 {
+      font-size: var(--fs-lg);
+      font-weight: 650;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+    }
+    .ax-head-copy p {
+      margin-top: 2px;
+      font-size: var(--fs-xs);
+      color: var(--ink-2);
+    }
+
+    /* ---- Segmented Control ---------------------------------------- */
+    .ax-segmented {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      padding: 3px;
+      background: var(--body);
+      border: 1px solid var(--line);
+      border-radius: var(--r-pill);
+      flex-wrap: wrap;
+    }
+    .ax-segmented button {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 32px;
+      padding: 0 var(--s-3);
+      border: 0;
+      border-radius: var(--r-pill);
+      background: transparent;
+      color: var(--ink-2);
+      font-size: var(--fs-xs);
+      font-weight: 500;
+      cursor: pointer;
+      transition: background var(--e-fast) ease, color var(--e-fast) ease;
+    }
+    .ax-segmented button:hover { color: var(--ink); }
+    .ax-segmented button[aria-pressed='true'] {
+      background: var(--seg-on);
+      color: var(--ink);
+      font-weight: 600;
+    }
+
+    /* ---- Interactive Architecture SVG ----------------------------- */
+    .diagram-frame {
+      background: var(--level);
+      border: 1px solid var(--line);
+      border-radius: var(--r-container);
+      padding: 8px 12px;
+    }
+    svg.diagram {
+      width: 100%;
+      height: auto;
+      max-height: 164px;
+      display: block;
+    }
+    .diagram .slot {
+      fill: var(--surface);
+      stroke: var(--line-strong);
+      stroke-width: 1;
+      transition: stroke var(--e-med) ease, fill var(--e-med) ease;
+    }
+    .diagram .slot.containerized {
+      fill: var(--accent-tint);
+      stroke: var(--accent);
+      stroke-width: 1.5;
+    }
+    .diagram .slot.native-ok {
+      fill: var(--ok-tint);
+      stroke: var(--ok);
+      stroke-width: 1.4;
+    }
+    .diagram .shared-bar {
+      fill: var(--surface);
+      stroke: var(--line);
+      stroke-width: 1;
+    }
+    .diagram .kernel-bar {
+      fill: var(--raised);
+      stroke: var(--line-strong);
+      stroke-width: 1.2;
+    }
+    .diagram .t-title {
+      font-family: 'Figtree', sans-serif;
+      font-size: 13.5px;
+      font-weight: 600;
+      fill: var(--ink);
+    }
+    .diagram .t-sub {
+      font-family: var(--mono);
+      font-size: 11px;
+      fill: var(--ink-2);
+    }
+    .diagram .t-tag {
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 600;
+      fill: var(--ink-3);
+    }
+    .diagram .t-tag.acc { fill: var(--accent); }
+    .diagram .t-tag.ok { fill: var(--ok-ink); }
+    .diagram .wire {
+      stroke: var(--line-strong);
+      stroke-width: 1.2;
+      fill: none;
+    }
+    .diagram .wire.acc {
+      stroke: var(--accent);
+      stroke-width: 1.6;
+      stroke-dasharray: 4 3;
+    }
+    .diagram .wire.ok {
+      stroke: var(--ok);
+      stroke-width: 1.5;
+    }
+
+    /* ---- Status Callout Line inside Section ----------------------- */
+    .mode-summary {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: var(--s-3);
+      font-size: var(--fs-xs);
+      color: var(--ink-2);
+    }
+    .mode-summary b { color: var(--ink); font-weight: 600; }
+
+    /* ---- Bottom Grid: 3 Cards + Verdict Table --------------------- */
+    .bottom-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: var(--s-2);
+      align-items: stretch;
+    }
+
+    .ax-card {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--r-container);
+      padding: 13px 16px;
+    }
+    .ax-card.active-card {
+      border-color: var(--accent);
+    }
+    .ax-card-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--s-2);
+    }
+    .ax-card h2 {
+      font-size: var(--fs-base);
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+    .ax-card p {
+      font-size: var(--fs-xs);
+      color: var(--ink-2);
+      line-height: 1.45;
+    }
+    .ax-divider {
+      height: 1px;
+      background: var(--line);
+      margin: 2px 0;
+    }
+    .ax-meta {
+      margin: 0;
+      display: grid;
+      gap: 4px;
+      margin-top: auto;
+    }
+    .ax-meta > div {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: var(--s-2);
+      font-size: var(--fs-xs);
+    }
+    .ax-meta dt { color: var(--ink-3); }
+    .ax-meta dd {
+      margin: 0;
+      font-family: var(--mono);
+      font-weight: 600;
+      color: var(--ink);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* ---- Table Card (Your Machine Verdict) ------------------------ */
+    .ax-table-card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--r-container);
+      padding: 12px 16px;
+    }
+    .ax-table-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: var(--s-2);
+      margin-bottom: 4px;
+    }
+    .ax-table-head h2 {
+      font-size: var(--fs-sm);
+      font-weight: 600;
+    }
+    .ax-table-head span {
+      font-size: 12px;
+      color: var(--ink-3);
+    }
+
+    .ax-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+    .ax-table th, .ax-table td {
+      padding: 5px var(--s-2);
+      font-size: var(--fs-xs);
+      text-align: left;
+      border-bottom: 1px solid var(--line);
+    }
+    .ax-table tr:last-child td, .ax-table tr:last-child th {
+      border-bottom: 0;
+    }
+    .ax-table thead th {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ink-2);
+      border-bottom: 1px solid var(--line-strong);
+      padding-top: 4px;
+    }
+    .ax-table thead th:nth-child(1) { width: 24%; }
+    .ax-table thead th:nth-child(2) { width: 22%; }
+    .ax-table thead th:nth-child(3) { width: 18%; }
+    .ax-table thead th:nth-child(4) { width: 36%; }
+    .ax-table tbody th {
+      font-weight: 600;
+      color: var(--ink);
+    }
+    .ax-table td {
+      color: var(--ink-2);
+      font-variant-numeric: tabular-nums;
+    }
+    .ax-table tbody tr {
+      cursor: pointer;
+      transition: background var(--e-fast) ease;
+    }
+    .ax-table tbody tr:hover {
+      background: rgba(242, 244, 246, 0.03);
+    }
+    .ax-table tbody tr.row-on {
+      background: var(--accent-tint);
+    }
+
+    @media (max-width: 920px) {
+      .ax-shell { padding: var(--s-3); }
+      .ax-section { padding: var(--s-3); border-radius: var(--r-container); }
+      .ax-head-row { flex-direction: column; align-items: flex-start; }
+      .mode-summary { flex-direction: column; gap: 4px; }
+      .bottom-grid { grid-template-columns: minmax(0, 1fr); }
+      .ax-table thead th:nth-child(2), .ax-table tbody td:nth-child(2) { display: none; }
+      .ax-table thead th:nth-child(1) { width: 32%; }
+      .ax-table thead th:nth-child(3) { width: 26%; }
+      .ax-table thead th:nth-child(4) { width: 42%; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      * { transition: none !important; animation: none !important; }
+    }
+  </style>
 </head>
 <body>
 
-<svg aria-hidden="true" style="position:absolute;width:0;height:0" focusable="false">
-  <defs>
-    <marker id="ar-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5"
-      orient="auto-start-reverse"><path d="M0,1.4 L9,5 L0,8.6 z" fill="var(--accent)"/></marker>
-    <marker id="ar-mut" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5"
-      orient="auto-start-reverse"><path d="M0,1.4 L9,5 L0,8.6 z" fill="var(--muted)"/></marker>
-    <marker id="ar-hot" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5"
-      orient="auto-start-reverse"><path d="M0,1.4 L9,5 L0,8.6 z" fill="var(--hot)"/></marker>
-    <marker id="ar-good" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5"
-      orient="auto-start-reverse"><path d="M0,1.4 L9,5 L0,8.6 z" fill="var(--good)"/></marker>
-  </defs>
-</svg>
-
-<div class="app">
-
-  <header class="top">
-    <h1>How Docker works</h1>
-    <span class="sub">Containers vs VMs, shared Linux kernel, layered images, and how they map to this workstation.</span>
-    <span class="p">Ubuntu 26.04 &middot; kernel 7.0.0-42 &middot; RTX 3090</span>
+  <!-- Top Nav -->
+  <header class="ax-topnav">
+    <span class="brand">How Docker Works on Your Machine</span>
+    <div class="specs">
+      <span>Ubuntu 26.04 LTS</span>
+      <span>&middot;</span>
+      <span class="mono">kernel 7.0.0-42</span>
+      <span>&middot;</span>
+      <span class="tnum">61 GiB RAM</span>
+      <span>&middot;</span>
+      <span>RTX 3090</span>
+      <span class="count-chip">80 repos</span>
+    </div>
   </header>
 
-  <main class="main">
-    <aside class="side" aria-label="Steps">
-      <div class="sh"><span>Concepts</span><span class="cnt" id="stepTotal">8</span></div>
-      <div class="steps" id="steps"></div>
-    </aside>
+  <main class="ax-shell">
 
-    <section class="stage-col">
-      <div class="stage-head">
-        <h2 id="title"></h2>
-        <span class="meta" id="meta"></span>
+    <!-- Section: Interactive Machine Map -->
+    <section class="ax-section">
+      <div class="ax-head-row">
+        <div class="ax-head-copy">
+          <h1>One shared kernel, optional walls per app</h1>
+          <p>A Docker container is not a virtual machine. It runs directly on your existing Linux kernel, but gives one process its own private folder tree and port.</p>
+        </div>
+
+        <!-- Segmented Control -->
+        <div class="ax-segmented" role="group" aria-label="Containerization mode" id="modeSeg">
+          <button type="button" data-mode="today" aria-pressed="false">Today (All Native)</button>
+          <button type="button" data-mode="hybrid" aria-pressed="true">
+            Practical Split <span class="ax-badge accent">Best Fit</span>
+          </button>
+          <button type="button" data-mode="db" aria-pressed="false">Throwaway Postgres</button>
+          <button type="button" data-mode="node" aria-pressed="false">Pin a Node App</button>
+        </div>
       </div>
-      <div class="stage" id="stage"></div>
-      <div class="narr"><p id="narr"></p></div>
+
+      <div class="diagram-frame" id="diagramWrap"></div>
+
+      <div class="mode-summary">
+        <span id="modeText"></span>
+        <span class="mono" style="font-size:var(--fs-xs);color:var(--ink-3)" id="modeCmd"></span>
+      </div>
     </section>
+
+    <!-- Three Astryx Cards: the 3 things a container actually does -->
+    <div class="bottom-grid">
+    <article class="ax-card" id="card-kernel">
+      <div class="ax-card-top">
+        <h2>Shared Kernel</h2>
+        <span class="ax-badge ok">~0.15 s boot</span>
+      </div>
+      <p>VMs boot a second OS and lock away gigabytes of RAM. Containers are regular Linux processes making direct syscalls to your 7.0.0-42 kernel.</p>
+      <div class="ax-divider"></div>
+      <dl class="ax-meta">
+        <div><dt>5 idle containers</dt><dd>~40 MB RAM</dd></div>
+        <div><dt>5 small VMs</dt><dd>~10 GB RAM</dd></div>
+      </dl>
+    </article>
+
+    <article class="ax-card" id="card-fs">
+      <div class="ax-card-top">
+        <h2>Private Files &amp; Ports</h2>
+        <span class="ax-badge accent">OverlayFS + -v</span>
+      </div>
+      <p>Each container sees only its own Node or Postgres version. You still edit <span class="mono">~/Code</span> in VS Code via a bind mount (<span class="mono">-v</span>) and open <span class="mono">localhost</span> via port map (<span class="mono">-p</span>).</p>
+      <div class="ax-divider"></div>
+      <dl class="ax-meta">
+        <div><dt>Code in ~/Code</dt><dd>Mounted live (-v)</dd></div>
+        <div><dt>Cleanup</dt><dd>docker rm (0 residue)</dd></div>
+      </dl>
+    </article>
+
+    <article class="ax-card" id="card-gpu">
+      <div class="ax-card-top">
+        <h2>The GPU Catch</h2>
+        <span class="ax-badge warn">Keep AI Native</span>
+      </div>
+        <p>Containers hide <span class="mono">/dev/nvidia0</span> by default. Passing the RTX 3090 inside requires root <span class="mono">nvidia-container-toolkit</span>, while Ollama and ComfyUI already work natively.</p>
+        <div class="ax-divider"></div>
+        <dl class="ax-meta">
+          <div><dt>Ollama + ComfyUI</dt><dd>Keep native</dd></div>
+          <div><dt>Rootless subuid</dt><dd>100000:65536 ready</dd></div>
+        </dl>
+      </article>
+    </div>
+
+    <!-- Table: Your 4 Workloads -->
+    <section class="ax-table-card">
+      <div class="ax-table-head">
+        <h2>How it maps to what runs on this computer</h2>
+        <span>Click any row to highlight it in the diagram above</span>
+      </div>
+      <table class="ax-table" id="workloadTable">
+        <thead>
+          <tr>
+            <th scope="col">Workload on this box</th>
+            <th scope="col">Current state</th>
+            <th scope="col">Verdict</th>
+            <th scope="col">Why</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr data-pick="db">
+            <th scope="row">PostgreSQL Databases</th>
+            <td class="mono">1 cluster on :5432</td>
+            <td><span class="ax-badge accent">Use Docker</span></td>
+            <td>Spin up a clean Postgres per repo (<span class="mono">:5433+</span>) and wipe it with <span class="mono">docker compose down -v</span>.</td>
+          </tr>
+          <tr data-pick="node">
+            <th scope="row">80 ~/Code Apps &amp; Scrapers</th>
+            <td class="mono">4.8 GB node_modules</td>
+            <td><span class="ax-badge accent">Optional Docker</span></td>
+            <td>Pins exact Node/Python versions for <span class="mono">restaurant-website</span> or scrapers without touching <span class="mono">/usr</span>.</td>
+          </tr>
+          <tr data-pick="today">
+            <th scope="row">Ollama (:11434)</th>
+            <td class="mono">7 models &middot; 103 GB</td>
+            <td><span class="ax-badge ok">Keep Native</span></td>
+            <td>Talks straight to the RTX 3090 driver with zero container overhead.</td>
+          </tr>
+          <tr data-pick="today">
+            <th scope="row">~/comfy/ComfyUI (:8188)</th>
+            <td class="mono">Wan2.1 + Flux fp8</td>
+            <td><span class="ax-badge ok">Keep Native</span></td>
+            <td>Avoids root <span class="mono">nvidia-container-toolkit</span> setup and multi-GB model bind mounts.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
   </main>
 
-  <footer class="controls">
-    <button class="ctrl" id="prev" type="button">Prev</button>
-    <button class="ctrl play" id="play" type="button">Play</button>
-    <button class="ctrl" id="next" type="button">Next</button>
-    <button class="ctrl" id="reset" type="button">Reset</button>
-    <div class="prog"><i id="prog"></i></div>
-    <span class="cnt" id="cnt">1 / 8</span>
-  </footer>
-</div>
-
-<script>
-/* ---------- helpers ---------- */
-const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-const txt = (x, y, t, cls = 'sm', anchor = 'start') =>
-  `<text class="${cls}" x="${x}" y="${y}" text-anchor="${anchor}">${t}</text>`;
-const SVG = (vb, body, cls = '') =>
-  `<svg class="fig ${cls}" viewBox="${vb}" preserveAspectRatio="xMidYMid meet" role="img">${body}</svg>`;
-const box = (x, y, w, h, t, sub = '', cls = 'box', tcls = 'hd') =>
-  `<rect class="${cls}" x="${x}" y="${y}" width="${w}" height="${h}" rx="6"/>` +
-  txt(x + w/2, y + (sub ? h/2 - 2 : h/2 + 4), t, tcls, 'middle') +
-  (sub ? txt(x + w/2, y + h/2 + 13, sub, 'sm', 'middle') : '');
-const row = (k, v, w = '', cls = '') =>
-  `<div class="row ${cls}"><span class="k">${k}</span><span class="v">${v}</span>` +
-  (w ? `<span class="w num">${w}</span>` : '') + `</div>`;
-const panel = (head, body, badge = '') =>
-  `<div class="panel"><div class="ph"><span>${head}</span>${badge ? `<span class="badge">${badge}</span>` : ''}</div>${body}</div>`;
-
-/* ==================================================================
-   Step 1: Your Machine Today (Native Everything)
-   ================================================================== */
-let stHostFocus = 'node';
-
-const HOST_GROUPS = {
-  node: {
-    name: '~/Code/* (80 directories)',
-    port: ':5173 – :5228',
-    detail: 'Most of ~/Code is Vite, React, and Express apps totaling 4.8 GB of node_modules. Every one runs directly against your single global Node binary — upgrading Node on the host upgrades all 80 projects at once.',
-    risk: 'Shared global runtime; one system Node upgrade touches every project.',
-    cls: 'hot'
-  },
-  pg: {
-    name: 'PostgreSQL 18.6 cluster',
-    port: '127.0.0.1:5432',
-    detail: 'One native systemd service (postgresql.service) serves moto-pass and any future app. Peer auth on /var/run/postgresql has no jlbroughton role by default, so apps share the cluster and superuser unless isolated by hand.',
-    risk: 'Single shared database engine and schema namespace across projects.',
-    cls: 'hot'
-  },
-  ollama: {
-    name: 'Ollama LLM daemon',
-    port: '127.0.0.1:11434',
-    detail: 'Native /usr/local/bin/ollama service talking straight to the NVIDIA driver and RTX 3090 (24 GB VRAM), serving 7 local models (~103 GB on disk, mostly Qwen 27B variants). Fast and zero-overhead where it lives.',
-    risk: 'None — native GPU access is already ideal here.',
-    cls: 'good'
-  },
-  comfy: {
-    name: '~/comfy/ComfyUI',
-    port: '127.0.0.1:8188',
-    detail: 'Python virtualenv with PyTorch, CUDA kernels, Wan2.1 + Flux fp8 weights, and custom nodes. Installing one custom node that pins a different torch or numpy version mutates the single environment.',
-    risk: 'Fragile Python/CUDA dependency tree; broken pip upgrade requires manual rollback.',
-    cls: 'hot'
-  }
-};
-
-function viewHostToday(){
-  return `
-    <div class="ctl-bar">
-      <label>Inspect workload on this machine</label>
-      <div class="seg" id="hostSeg">
-        <button type="button" data-k="node" class="${stHostFocus==='node'?'on':''}">80 ~/Code Apps</button>
-        <button type="button" data-k="pg" class="${stHostFocus==='pg'?'on':''}">Postgres 18 (:5432)</button>
-        <button type="button" data-k="ollama" class="${stHostFocus==='ollama'?'on':''}">Ollama (:11434)</button>
-        <button type="button" data-k="comfy" class="${stHostFocus==='comfy'?'on':''}">ComfyUI (:8188)</button>
-      </div>
-      <span class="readout" id="hostReadout"></span>
-    </div>
-    <div id="hostFig"></div>
-    <div class="grid2">
-      <div id="hostDetail"></div>
-      ${panel('Measured on this computer', [
-        row('OS / Kernel', 'Ubuntu 26.04 LTS · Linux 7.0.0-42-generic', 'native'),
-        row('CPU / Memory', '16 cores · 61 GiB RAM (55 GiB available)', '9% used', 'good'),
-        row('Root filesystem', '/dev/mapper/ubuntu--vg-ubuntu--lv (913 GB)', '627 GB free', 'good'),
-        row('GPU', 'NVIDIA GeForce RTX 3090', '24,576 MiB', 'good'),
-        row('Docker status', 'No docker, podman, or lxc binary installed', 'absent')
-      ].join(''), 'bare metal')}
-    </div>
-  `;
-}
-
-function afterHostToday(){
-  const seg = document.querySelectorAll('#hostSeg button');
-  function paint(){
-    const g = HOST_GROUPS[stHostFocus];
-    document.getElementById('hostReadout').textContent = g.port;
-    const isN = k => stHostFocus === k;
-
-    const svg = SVG('0 0 820 218', [
-      /* shared userland box */
-      `<rect class="box2" x="14" y="10" width="792" height="108" rx="6"/>`,
-      txt(28, 29, 'Single shared host userland (/usr, /etc, global Node, system libs, /var/run)', 'hd'),
-      txt(792, 29, 'no container boundaries', 'sm', 'end'),
-
-      box(28, 42, 182, 64, '80 ~/Code projects', '4.8 GB node_modules', isN('node') ? 'boxh' : 'box'),
-      box(222, 42, 182, 64, 'PostgreSQL 18.6', '127.0.0.1:5432 · motopass', isN('pg') ? 'boxh' : 'box'),
-      box(416, 42, 182, 64, 'Ollama service', '127.0.0.1:11434 · 7 models', isN('ollama') ? 'boxg' : 'box'),
-      box(610, 42, 182, 64, '~/comfy/ComfyUI', '127.0.0.1:8188 · torch+CUDA', isN('comfy') ? 'boxh' : 'box'),
-
-      /* wires down to kernel */
-      `<line class="${isN('node')?'wirh':'wire'}" x1="119" y1="106" x2="119" y2="136"/>`,
-      `<line class="${isN('pg')?'wirh':'wire'}" x1="313" y1="106" x2="313" y2="136"/>`,
-      `<line class="${isN('ollama')?'wirg':'wire'}" x1="507" y1="106" x2="507" y2="136"/>`,
-      `<line class="${isN('comfy')?'wirh':'wire'}" x1="701" y1="106" x2="701" y2="136"/>`,
-
-      /* kernel + hardware */
-      box(14, 136, 792, 34, 'Linux Kernel 7.0.0-42-generic (cgroups v2 + namespaces built in, currently unused by Docker)', '', 'boxa'),
-      box(14, 178, 792, 32, 'Hardware: 16-core CPU · 61 GiB RAM · 913 GB NVMe (627 GB free) · RTX 3090 (24 GB VRAM)', '', 'box')
-    ].join(''));
-
-    document.getElementById('hostFig').innerHTML = panel('Current host architecture — every process shares one filesystem & package tree', svg, 'today');
-    document.getElementById('hostDetail').innerHTML = panel(g.name, [
-      `<p class="line" style="margin-bottom:10px">${esc(g.detail)}</p>`,
-      row('Bound port / scope', esc(g.port), 'host net'),
-      row('Friction point', esc(g.risk), g.cls === 'good' ? 'keep native' : 'drift risk', g.cls)
-    ].join(''), g.port);
-  }
-  seg.forEach(b => b.addEventListener('click', () => {
-    stHostFocus = b.dataset.k;
-    seg.forEach(x => x.classList.toggle('on', x === b));
-    paint();
-  }));
-  paint();
-}
-
-/* ==================================================================
-   Step 2: What a Container Actually Is (Not a VM)
-   ================================================================== */
-let stArchMode = 'container';
-
-function viewNotAVm(){
-  return `
-    <div class="ctl-bar">
-      <label>Compare isolation model</label>
-      <div class="seg" id="archSeg">
-        <button type="button" data-m="container" class="${stArchMode==='container'?'on':''}">Docker Container (shared kernel)</button>
-        <button type="button" data-m="vm" class="${stArchMode==='vm'?'on':''}">Virtual Machine (full guest OS)</button>
-      </div>
-      <span class="readout" id="archReadout"></span>
-    </div>
-    <div id="archFig"></div>
-    <div id="archMetrics"></div>
-  `;
-}
-
-function afterNotAVm(){
-  const btns = document.querySelectorAll('#archSeg button');
-  function paint(){
-    const isC = stArchMode === 'container';
-    document.getElementById('archReadout').textContent = isC
-      ? '0 guest kernels · ~150 ms boot · ~5 MB base overhead'
-      : 'Full guest kernel per VM · ~12 s boot · 2–4 GB RAM carved out';
-
-    const leftStack = [
-      txt(205, 22, 'Docker Containers (normal Linux processes)', 'hd', 'middle'),
-      box(30, 34, 168, 52, 'deal-scout container', 'Node 22 + /app files', isC ? 'boxa' : 'box'),
-      box(212, 34, 168, 52, 'postgres:18 container', 'own /var/lib/postgresql', isC ? 'boxa' : 'box'),
-      `<line class="wira" x1="114" y1="86" x2="114" y2="144" marker-end="url(#ar-acc)"/>`,
-      `<line class="wira" x1="296" y1="86" x2="296" y2="144" marker-end="url(#ar-acc)"/>`,
-      txt(205, 118, 'direct syscalls (open, read, socket, clone)', 'acc', 'middle'),
-      box(30, 148, 350, 38, 'Your existing Kernel 7.0.0-42-generic', '1 kernel in RAM · namespaces + cgroups v2', 'boxg'),
-      box(30, 194, 350, 30, 'Host RAM (61 GiB) — memory stays in shared page cache', '', 'box')
-    ].join('');
-
-    const rightStack = [
-      txt(615, 22, 'Virtual Machines (KVM / QEMU)', 'hd', 'middle'),
-      box(440, 34, 168, 34, 'App A + bins', 'inside guest VM 1', !isC ? 'boxh' : 'box'),
-      box(622, 34, 168, 34, 'Postgres + bins', 'inside guest VM 2', !isC ? 'boxh' : 'box'),
-      box(440, 74, 168, 32, 'Guest Linux Kernel #1', '2 GB RAM reserved', !isC ? 'boxe' : 'box2'),
-      box(622, 74, 168, 32, 'Guest Linux Kernel #2', '2 GB RAM reserved', !isC ? 'boxe' : 'box2'),
-      box(440, 112, 350, 28, 'Hypervisor (QEMU / KVM hardware virtualization)', '', !isC ? 'boxh' : 'box2'),
-      box(440, 148, 350, 38, 'Host Kernel 7.0.0-42-generic', 'translates guest ring calls', 'box'),
-      box(440, 194, 350, 30, 'Host RAM (61 GiB) — 4 GB locked away even when idle', '', 'box')
-    ].join('');
-
-    const svg = SVG('0 0 820 234', [
-      `<rect x="14" y="4" width="382" height="226" rx="6" fill="none" stroke="${isC?'var(--accent)':'var(--line)'}" stroke-width="${isC?1.5:1}"/>`,
-      `<rect x="424" y="4" width="382" height="226" rx="6" fill="none" stroke="${!isC?'var(--hot)':'var(--line)'}" stroke-width="${!isC?1.5:1}"/>`,
-      leftStack,
-      rightStack
-    ].join(''));
-
-    document.getElementById('archFig').innerHTML = panel(
-      'Side-by-side: a container makes direct syscalls to your host kernel; a VM boots a second kernel',
-      svg,
-      isC ? 'containers' : 'virtual machines'
-    );
-
-    document.getElementById('archMetrics').innerHTML = panel('Cost on your 61 GiB / 16-core machine', `
-      <div class="bars">
-        <div class="bar good">
-          <span class="bl">Container startup time</span>
-          <div class="bt"><i class="bf" style="transform:scaleX(0.03)"></i></div>
-          <span class="bv">~0.15 s</span>
-        </div>
-        <div class="bar hot">
-          <span class="bl">VM boot time (full OS)</span>
-          <div class="bt"><i class="bf" style="transform:scaleX(0.85)"></i></div>
-          <span class="bv">~12.0 s</span>
-        </div>
-        <div class="bar good">
-          <span class="bl">Idle RAM (5 containers)</span>
-          <div class="bt"><i class="bf" style="transform:scaleX(0.04)"></i></div>
-          <span class="bv">~40 MB</span>
-        </div>
-        <div class="bar bad">
-          <span class="bl">Idle RAM (5 small VMs)</span>
-          <div class="bt"><i class="bf" style="transform:scaleX(0.92)"></i></div>
-          <span class="bv">~10 GB</span>
-        </div>
-      </div>
-    `, 'overhead');
-  }
-  btns.forEach(b => b.addEventListener('click', () => {
-    stArchMode = b.dataset.m;
-    btns.forEach(x => x.classList.toggle('on', x === b));
-    paint();
-  }));
-  paint();
-}
-
-/* ==================================================================
-   Step 3: Namespaces & Cgroups (Already in Your Kernel)
-   ================================================================== */
-let stLens = 'container';
-
-function viewNamespaces(){
-  return `
-    <div class="ctl-bar">
-      <label>Inspect the exact same running process from</label>
-      <div class="seg" id="nsSeg">
-        <button type="button" data-l="container" class="${stLens==='container'?'on':''}">Inside the Container (namespaced view)</button>
-        <button type="button" data-l="host" class="${stLens==='host'?'on':''}">From Your Host Terminal (jlbroughton@ubuntu)</button>
-      </div>
-      <span class="readout" id="nsReadout"></span>
-    </div>
-    <div id="nsFig"></div>
-    <div id="nsTable"></div>
-  `;
-}
-
-function afterNamespaces(){
-  const btns = document.querySelectorAll('#nsSeg button');
-  function paint(){
-    const inC = stLens === 'container';
-    document.getElementById('nsReadout').textContent = inC
-      ? 'Process believes it is PID 1 on a clean machine'
-      : 'Host kernel sees PID 48291 owned by uid 100000';
-
-    const svg = SVG('0 0 820 205', [
-      /* Left: kernel primitives */
-      box(16, 14, 240, 82, 'Linux Namespaces', 'What the process is allowed to SEE', 'boxa'),
-      txt(30, 84, 'pid · net · mnt · user · uts · ipc', 'acc'),
-      box(16, 108, 240, 82, 'cgroups v2 (/sys/fs/cgroup)', 'What the process is allowed to USE', 'boxg'),
-      txt(30, 178, 'memory.max · cpu.max · pids.max', 'good'),
-
-      `<line class="wira" x1="256" y1="55" x2="306" y2="85" marker-end="url(#ar-acc)"/>`,
-      `<line class="wirg" x1="256" y1="149" x2="306" y2="119" marker-end="url(#ar-good)"/>`,
-
-      /* Right: The process box */
-      `<rect class="${inC?'boxa':'boxh'}" x="310" y="14" width="494" height="176" rx="6"/>`,
-      txt(330, 38, inC ? 'View inside container namespace' : 'View from host shell (ps aux / top)', 'hd'),
-      txt(786, 38, 'same kernel task_struct', 'sm', 'end'),
-
-      box(330, 52, 220, 54, inC ? 'PID: 1' : 'Host PID: 48291', inC ? 'init process of container' : 'ordinary child of containerd-shim', 'box'),
-      box(564, 52, 220, 54, inC ? 'User: root (uid 0)' : 'Host UID: 100000', inC ? 'root inside userns only' : 'unprivileged subuid from /etc/subuid', 'box'),
-      box(330, 118, 220, 54, inC ? 'Root FS: / (Alpine 8 MB)' : 'Dir: ~/.local/share/docker/...', inC ? 'cannot see /home/jlbroughton' : 'overlay2 directory on your NVMe', 'box'),
-      box(564, 118, 220, 54, inC ? 'Net: eth0 (172.17.0.2)' : 'Net: veth4a9c@if12', inC ? 'own loopback + routing table' : 'virtual cable into bridge', 'box')
-    ].join(''));
-
-    document.getElementById('nsFig').innerHTML = panel(
-      'One process in RAM, two views: namespaces filter visibility; cgroups cap resource use',
-      svg,
-      'kernel primitives'
-    );
-
-    document.getElementById('nsTable').innerHTML = panel('Six kernel switches that build the container wall', `
-      <table class="tbl">
-        <thead>
-          <tr><th>Primitive</th><th>Inside container</th><th>On your Ubuntu 26.04 host</th><th>Status on this box</th></tr>
-        </thead>
-        <tbody>
-          <tr class="${inC?'hl':''}">
-            <td class="n">pid namespace</td>
-            <td>Sees only its own <span class="acc">PID 1..N</span></td>
-            <td>Visible as <span class="n">PID 48291</span> in host <span class="mono">htop</span></td>
-            <td class="good">Active in 7.0.0-42</td>
-          </tr>
-          <tr class="${inC?'hl':''}">
-            <td class="n">mnt namespace</td>
-            <td>Own <span class="acc">/usr, /etc, /app</span></td>
-            <td><span class="n">/home/jlbroughton</span> is invisible unless mounted</td>
-            <td class="good">Active in 7.0.0-42</td>
-          </tr>
-          <tr class="${inC?'hl':''}">
-            <td class="n">net namespace</td>
-            <td>Own <span class="acc">:5432</span> or <span class="acc">:3000</span></td>
-            <td>Does not collide with native Postgres on <span class="n">:5432</span></td>
-            <td class="good">Active in 7.0.0-42</td>
-          </tr>
-          <tr class="${!inC?'hl':''}">
-            <td class="n">user namespace</td>
-            <td>Runs <span class="acc">apt</span> as container <span class="acc">uid 0</span></td>
-            <td>Mapped to <span class="n">jlbroughton:100000:65536</span> in <span class="mono">/etc/subuid</span></td>
-            <td class="hot">subuid ready · needs uidmap</td>
-          </tr>
-          <tr class="${!inC?'hl':''}">
-            <td class="n">cgroups v2</td>
-            <td>Optional <span class="acc">--memory=4g --cpus=4</span></td>
-            <td>Enforced by <span class="n">/sys/fs/cgroup/cgroup.controllers</span></td>
-            <td class="good">Mounted (cgroups v2)</td>
-          </tr>
-        </tbody>
-      </table>
-    `, 'linux 7.0.0-42');
-  }
-  btns.forEach(b => b.addEventListener('click', () => {
-    stLens = b.dataset.l;
-    btns.forEach(x => x.classList.toggle('on', x === b));
-    paint();
-  }));
-  paint();
-}
-
-/* ==================================================================
-   Step 4: Images & OverlayFS Layers (Why 10 Apps Don't Cost 10x Disk)
-   ================================================================== */
-let stAppCount = 3;
-
-function viewLayers(){
-  return `
-    <div class="ctl-bar">
-      <label>Containerize Node projects from ~/Code</label>
-      <div class="seg" id="layerSeg">
-        <button type="button" data-n="1" class="${stAppCount===1?'on':''}">1 App (deal-scout)</button>
-        <button type="button" data-n="3" class="${stAppCount===3?'on':''}">3 Apps (+ moto-pass, codechat)</button>
-        <button type="button" data-n="10" class="${stAppCount===10?'on':''}">10 Apps from ~/Code</button>
-      </div>
-      <span class="readout" id="layerReadout"></span>
-    </div>
-    <div id="layerFig"></div>
-    <div class="grid2">
-      <div id="layerMath"></div>
-      ${panel('Why this matters for your 80 projects', [
-        row('Today in ~/Code', '80 folders with independent node_modules trees', '4.8 GB'),
-        row('Base image layers', 'Content-addressed SHA256 blobs stored once on disk', 'read-only'),
-        row('Container upperdir', 'Only files mutated at runtime (logs, /tmp, cache)', 'disposable'),
-        row('docker rm <id>', 'Deletes only the thin top layer; base stays cached', 'instant')
-      ].join(''), 'OverlayFS')}
-    </div>
-  `;
-}
-
-function afterLayers(){
-  const btns = document.querySelectorAll('#layerSeg button');
-  function paint(){
-    const baseMb = 180;
-    const perAppMb = 45;
-    const totalDockerMb = baseMb + stAppCount * perAppMb;
-    const naiveMb = stAppCount * (baseMb + perAppMb);
-    const savedMb = naiveMb - totalDockerMb;
-
-    document.getElementById('layerReadout').textContent =
-      `Disk used: ${totalDockerMb} MB (saves ${savedMb} MB via shared base layers)`;
-
-    const apps = [
-      { name: 'deal-scout', port: ':5183', diff: '+42 MB deps' },
-      { name: 'moto-pass', port: ':5180', diff: '+51 MB deps' },
-      { name: 'codechat', port: ':5176', diff: '+38 MB deps' },
-      { name: 'bike-shop', port: ':5173', diff: '+44 MB deps' },
-      { name: 'gpu-tracker', port: ':5195', diff: '+31 MB deps' }
-    ];
-    const shown = stAppCount === 1 ? [apps[0]] : (stAppCount === 3 ? apps.slice(0,3) : apps);
-    const colW = Math.floor(760 / shown.length) - 10;
-
-    const topBoxes = shown.map((a, i) => {
-      const x = 30 + i * (colW + 12);
-      return [
-        box(x, 16, colW, 42, a.name + ' (rw)', 'thin writable layer · ~2 MB', 'boxh'),
-        box(x, 66, colW, 42, 'App code + lockfile (ro)', a.diff, 'boxa'),
-        `<line class="wira" x1="${x + colW/2}" y1="108" x2="${x + colW/2}" y2="132"/>`
-      ].join('');
-    }).join('');
-
-    const svg = SVG('0 0 820 226', [
-      topBoxes,
-      box(30, 132, 760, 40, 'Shared layer: Node 22.14 runtime + npm (read-only SHA256 layer, stored ONCE)', '130 MB on disk · mounted into all ' + stAppCount + ' containers simultaneously', 'boxg'),
-      box(30, 180, 760, 36, 'Shared layer: Debian bookworm-slim userland (read-only SHA256 layer, stored ONCE)', '50 MB on disk · libc, libssl, ca-certificates', 'boxg')
-    ].join(''));
-
-    document.getElementById('layerFig').innerHTML = panel(
-      stAppCount === 10
-        ? 'Showing 5 of 10 containers — all 10 point at the exact same 180 MB read-only base layers'
-        : 'OverlayFS merges read-only base layers with a thin writable top layer per container',
-      svg,
-      stAppCount + (stAppCount === 1 ? ' container' : ' containers')
-    );
-
-    document.getElementById('layerMath').innerHTML = panel('Disk math across ' + stAppCount + (stAppCount===1?' project':' projects'), [
-      row('Shared base (node:22-slim)', 'Downloaded & stored once', '180 MB', 'good'),
-      row('App layers (' + stAppCount + ' × ~45 MB)', 'Project code + specific packages', (stAppCount * perAppMb) + ' MB'),
-      row('Writable container layers', 'Ephemeral runtime scratch space', '~' + (stAppCount * 2) + ' MB'),
-      row('Total with OverlayFS', 'Actual space taken on your 627 GB free NVMe', totalDockerMb + ' MB', 'new'),
-      row('Without layer sharing', stAppCount + ' full copies of OS + Node + deps', naiveMb + ' MB', 'hot')
-    ].join(''), savedMb + ' MB saved');
-  }
-  btns.forEach(b => b.addEventListener('click', () => {
-    stAppCount = +b.dataset.n;
-    btns.forEach(x => x.classList.toggle('on', x === b));
-    paint();
-  }));
-  paint();
-}
-
-/* ==================================================================
-   Step 5: Editing Code in ~/Code (Bind Mounts & Port Forwarding)
-   ================================================================== */
-let stFlowEvent = 'edit';
-
-function viewBindAndPorts(){
-  return `
-    <div class="ctl-bar">
-      <label>Trace what crosses the container boundary</label>
-      <div class="seg" id="flowSeg">
-        <button type="button" data-f="edit" class="${stFlowEvent==='edit'?'on':''}">1. Save File in VS Code (-v bind mount)</button>
-        <button type="button" data-f="http" class="${stFlowEvent==='http'?'on':''}">2. Open localhost:5183 (-p port forward)</button>
-        <button type="button" data-f="rm" class="${stFlowEvent==='rm'?'on':''}">3. Delete Container (docker rm -f)</button>
-      </div>
-      <span class="readout" id="flowReadout"></span>
-    </div>
-    <div id="flowFig"></div>
-    <div id="flowCmd"></div>
-  `;
-}
-
-function afterBindAndPorts(){
-  const btns = document.querySelectorAll('#flowSeg button');
-  function paint(){
-    const isEdit = stFlowEvent === 'edit';
-    const isHttp = stFlowEvent === 'http';
-    const isRm = stFlowEvent === 'rm';
-
-    document.getElementById('flowReadout').textContent = isEdit
-      ? 'Zero file copying — same inode on your NVMe'
-      : (isHttp ? 'Browser hits host :5183 -> forwarded to container :3033' : 'Container gone in 80 ms; ~/Code/deal-scout untouched');
-
-    const svg = SVG('0 0 820 220', [
-      /* Left: Host */
-      `<rect class="box2" x="16" y="12" width="356" height="196" rx="6"/>`,
-      txt(32, 34, 'Your Host (Ubuntu 26.04)', 'hd'),
-      box(32, 48, 324, 64, 'VS Code (snap) + ~/Code/deal-scout/src', 'Real files on /dev/mapper/ubuntu--vg-ubuntu--lv', isEdit || isRm ? 'boxg' : 'box'),
-      box(32, 128, 324, 64, 'Firefox / Browser -> http://localhost:5183', 'Or Tailscale jlb-hermes.tail1caa84.ts.net:5183', isHttp ? 'boxa' : 'box'),
-
-      /* Bridges across the boundary */
-      `<line class="${isEdit?'wirg':'wire'}" x1="356" y1="80" x2="464" y2="80" marker-end="url(#${isEdit?'ar-good':'ar-mut'})"/>`,
-      txt(410, 70, '-v ~/Code/deal-scout:/app', isEdit ? 'good' : 'sm', 'middle'),
-      txt(410, 96, isEdit ? 'same disk inode' : 'bind mount', isEdit ? 'good' : 'sm', 'middle'),
-
-      `<line class="${isHttp?'wira':'wire'}" x1="356" y1="160" x2="464" y2="160" marker-end="url(#${isHttp?'ar-acc':'ar-mut'})"/>`,
-      txt(410, 150, '-p 5183:3033', isHttp ? 'acc' : 'sm', 'middle'),
-      txt(410, 176, isHttp ? 'DNAT port forward' : 'port map', isHttp ? 'acc' : 'sm', 'middle'),
-
-      /* Right: Container */
-      `<rect class="${isRm?'boxe':'boxa'}" x="448" y="12" width="356" height="196" rx="6" stroke-dasharray="${isRm?'5 4':'none'}"/>`,
-      txt(464, 34, isRm ? 'Container deleted (docker rm)' : 'Container: deal-scout-dev', 'hd'),
-      box(464, 48, 324, 64, '/app/src (mounted from host)', isRm ? 'Unmount only — host files stay on disk' : 'Vite watcher sees save immediately (HMR)', isEdit ? 'boxg' : 'box'),
-      box(464, 128, 324, 64, 'Pinned Node 20.11 + isolated node_modules', isRm ? 'Removed cleanly — 0 stray files in /usr' : 'Listening on container 0.0.0.0:3033', isHttp ? 'boxa' : 'box')
-    ].join(''));
-
-    document.getElementById('flowFig').innerHTML = panel(
-      'You still edit in VS Code and open localhost in Firefox; only the Node runtime lives inside the box',
-      svg,
-      stFlowEvent
-    );
-
-    document.getElementById('flowCmd').innerHTML = panel('The exact command and what each flag wires up', [
-      `<p class="line" style="margin-bottom:10px"><b>docker run --rm -it</b> <span class="good">-v ~/Code/deal-scout:/app</span> <span class="acc">-p 5183:3033</span> <b>node:20-slim npm run dev</b></p>`,
-      row('-v ~/Code/deal-scout:/app', 'Bind-mounts your real folder into /app inside the container (not a copy)', 'live sync', isEdit ? 'new' : ''),
-      row('-p 5183:3033', 'Maps host 127.0.0.1:5183 into container port 3033 so your browser URL never changes', 'network', isHttp ? 'new' : ''),
-      row('--rm', 'Automatically deletes the container filesystem the moment you hit Ctrl+C', 'reversible', isRm ? 'new' : '')
-    ].join(''), 'workflow');
-  }
-  btns.forEach(b => b.addEventListener('click', () => {
-    stFlowEvent = b.dataset.f;
-    btns.forEach(x => x.classList.toggle('on', x === b));
-    paint();
-  }));
-  paint();
-}
-
-/* ==================================================================
-   Step 6: Solving Your Postgres 18 & Multi-App Collision
-   ================================================================== */
-let stPgMode = 'docker';
-
-function viewPostgresIsolation(){
-  return `
-    <div class="ctl-bar">
-      <label>Database setup across projects</label>
-      <div class="seg" id="pgSeg">
-        <button type="button" data-p="today" class="${stPgMode==='today'?'on':''}">Today: 1 Native Postgres 18 (:5432)</button>
-        <button type="button" data-p="docker" class="${stPgMode==='docker'?'on':''}">With Compose: Isolated DB per Project</button>
-      </div>
-      <span class="readout" id="pgReadout"></span>
-    </div>
-    <div id="pgFig"></div>
-    <div id="pgCompare"></div>
-  `;
-}
-
-function afterPostgresIsolation(){
-  const btns = document.querySelectorAll('#pgSeg button');
-  function paint(){
-    const isD = stPgMode === 'docker';
-    document.getElementById('pgReadout').textContent = isD
-      ? 'Each project gets its own PG version, role, and disposable volume'
-      : 'Single cluster on :5432 · FATAL: role "jlbroughton" does not exist';
-
-    const todaySvg = SVG('0 0 820 206', [
-      box(24, 18, 230, 52, '~/Code/moto-pass (:5180)', 'needs PG 18 · database: motopass', 'box'),
-      box(24, 80, 230, 52, '~/Code/restaurant-website', 'docker-compose.yml expects own DB', 'box'),
-      box(24, 142, 230, 52, 'New prototype app', 'wants pgvector + destructive reset', 'boxh'),
-
-      `<line class="wirh" x1="254" y1="44" x2="430" y2="95" marker-end="url(#ar-hot)"/>`,
-      `<line class="wirh" x1="254" y1="106" x2="430" y2="106" marker-end="url(#ar-hot)"/>`,
-      `<line class="wirh" x1="254" y1="168" x2="430" y2="118" marker-end="url(#ar-hot)"/>`,
-
-      `<rect class="boxe" x="434" y="24" width="362" height="164" rx="6"/>`,
-      txt(454, 48, 'Single Native PostgreSQL 18.6 (:5432)', 'hd'),
-      txt(454, 72, 'Socket: /var/run/postgresql/.s.PGSQL.5432', 'sm'),
-      txt(454, 96, '1. Peer auth fails for user jlbroughton without sudo -u postgres', 'bad'),
-      txt(454, 118, '2. All apps share one superuser, extensions, and port 5432', 'hot'),
-      txt(454, 140, '3. Testing PG 16 vs PG 18 side-by-side requires manual cluster ports', 'muted'),
-      txt(454, 162, '4. Dropping a test DB leaves roles and config in /etc/postgresql', 'muted')
-    ].join(''));
-
-    const dockerSvg = SVG('0 0 820 206', [
-      /* Row 1: Moto Pass */
-      box(20, 16, 230, 50, 'Native Moto Pass (:5180)', 'keeps existing setup untouched', 'boxg'),
-      `<line class="wirg" x1="250" y1="41" x2="320" y2="41" marker-end="url(#ar-good)"/>`,
-      box(324, 16, 472, 50, 'Native PostgreSQL 18.6 on 127.0.0.1:5432', 'motopass DB stays right where it is today', 'boxg'),
-
-      /* Row 2: Restaurant */
-      box(20, 80, 230, 50, 'restaurant-website', 'docker compose up -d', 'boxa'),
-      `<line class="wira" x1="250" y1="105" x2="320" y2="105" marker-end="url(#ar-acc)"/>`,
-      box(324, 80, 472, 50, 'Container postgres:16 on 127.0.0.1:5433', 'private network + volume · zero touch on :5432', 'boxa'),
-
-      /* Row 3: Throwaway */
-      box(20, 144, 230, 50, 'Experiment / Scraper DB', 'pgvector:pg17', 'boxa'),
-      `<line class="wira" x1="250" y1="169" x2="320" y2="169" marker-end="url(#ar-acc)"/>`,
-      box(324, 144, 472, 50, 'Container pgvector on 127.0.0.1:5434', 'docker compose down -v wipes 100% when finished', 'boxa')
-    ].join(''));
-
-    document.getElementById('pgFig').innerHTML = panel(
-      isD
-        ? 'Native Postgres on :5432 stays untouched while new projects spin up isolated databases on :5433+'
-        : 'Every project funnels into one system-wide Postgres cluster on port 5432',
-      isD ? dockerSvg : todaySvg,
-      isD ? 'isolated per app' : 'shared cluster'
-    );
-
-    document.getElementById('pgCompare').innerHTML = panel('What changes in day-to-day database work', [
-      row('Starting a project DB', isD ? 'docker compose up -d (reads project compose file)' : 'sudo -u postgres createuser / createdb by hand', isD ? '1 command' : 'manual sudo', isD ? 'good' : 'hot'),
-      row('Engine version per app', isD ? 'Pin postgres:15, postgres:18, or pgvector per repo' : 'Locked to Ubuntu system package (18.6)', isD ? 'per-repo' : 'global only', isD ? 'good' : 'hot'),
-      row('Wiping test data cleanly', isD ? 'docker compose down -v removes DB and volume completely' : 'DROP DATABASE; stray roles and extensions stay behind', isD ? '100% clean' : 'leaves state', isD ? 'good' : 'hot')
-    ].join(''), 'comparison');
-  }
-  btns.forEach(b => b.addEventListener('click', () => {
-    stPgMode = b.dataset.p;
-    btns.forEach(x => x.classList.toggle('on', x === b));
-    paint();
-  }));
-  paint();
-}
-
-/* ==================================================================
-   Step 7: The GPU Catch (RTX 3090, Ollama & ComfyUI)
-   ================================================================== */
-let stGpuPath = 'native';
-
-function viewGpuBoundary(){
-  return `
-    <div class="ctl-bar">
-      <label>How workloads reach your RTX 3090 (24 GB VRAM)</label>
-      <div class="seg" id="gpuSeg">
-        <button type="button" data-g="native" class="${stGpuPath==='native'?'on':''}">Native Path (Ollama &amp; ComfyUI Today)</button>
-        <button type="button" data-g="docker" class="${stGpuPath==='docker'?'on':''}">Container Path (Requires nvidia-container-toolkit)</button>
-      </div>
-      <span class="readout" id="gpuReadout"></span>
-    </div>
-    <div id="gpuFig"></div>
-    <div id="gpuVerdict"></div>
-  `;
-}
-
-function afterGpuBoundary(){
-  const btns = document.querySelectorAll('#gpuSeg button');
-  function paint(){
-    const isN = stGpuPath === 'native';
-    document.getElementById('gpuReadout').textContent = isN
-      ? 'Direct /dev/nvidia0 access · 0 setup · already working'
-      : 'Needs root to install nvidia-container-toolkit + daemon hook';
-
-    const svg = SVG('0 0 820 218', [
-      /* Left: Native AI stack */
-      `<rect x="16" y="10" width="380" height="128" rx="6" fill="none" stroke="${isN?'var(--good)':'var(--line)'}" stroke-width="${isN?1.5:1}"/>`,
-      txt(32, 30, 'Native on Host (Recommended for AI)', 'hd'),
-      box(32, 42, 168, 78, 'Ollama (:11434)', '103 GB models in /usr/share/ollama', isN ? 'boxg' : 'box'),
-      box(212, 42, 168, 78, '~/comfy/ComfyUI', 'Wan2.1 + Flux fp8 · direct venv', isN ? 'boxg' : 'box'),
-      `<line class="${isN?'wirg':'wire'}" x1="206" y1="120" x2="206" y2="152" marker-end="url(#${isN?'ar-good':'ar-mut'})"/>`,
-
-      /* Right: Container AI stack */
-      `<rect x="424" y="10" width="380" height="128" rx="6" fill="none" stroke="${!isN?'var(--hot)':'var(--line)'}" stroke-width="${!isN?1.5:1}"/>`,
-      txt(440, 30, 'Inside a Docker Container (--gpus all)', 'hd'),
-      box(440, 42, 348, 42, 'Containerized CUDA / PyTorch workload', 'Isolated from host /dev/* by default', !isN ? 'boxh' : 'box'),
-      box(440, 92, 348, 36, 'Extra bridge: nvidia-container-toolkit', 'Requires root apt install + CDI device injection', !isN ? 'boxe' : 'box2'),
-      `<line class="${!isN?'wirh':'wire'}" x1="614" y1="128" x2="614" y2="152" marker-end="url(#${!isN?'ar-hot':'ar-mut'})"/>`,
-
-      /* Shared bottom driver + GPU */
-      box(16, 154, 788, 28, 'Host Kernel Driver: /dev/nvidia0 · /dev/nvidiactl · /dev/nvidia-uvm', '', 'boxa'),
-      box(16, 188, 788, 26, 'Hardware: NVIDIA GeForce RTX 3090 (24,576 MiB VRAM)', '', 'box')
-    ].join(''));
-
-    document.getElementById('gpuFig').innerHTML = panel(
-      'Containers hide hardware devices by default; punching the RTX 3090 through the wall takes extra root plumbing',
-      svg,
-      isN ? 'direct device access' : 'container GPU passthrough'
-    );
-
-    document.getElementById('gpuVerdict').innerHTML = panel('Where Docker helps vs. where it gets in the way on this workstation', `
-      <table class="tbl">
-        <thead>
-          <tr><th>Workload on your machine</th><th>Size / Port</th><th>Best home</th><th>Why</th></tr>
-        </thead>
-        <tbody>
-          <tr class="${isN?'hl':''}">
-            <td class="n">Ollama (7 local LLMs)</td>
-            <td>~103 GB · :11434</td>
-            <td class="good">Keep Native</td>
-            <td>Already a clean systemd binary talking straight to the 3090</td>
-          </tr>
-          <tr class="${isN?'hl':''}">
-            <td class="n">~/comfy/ComfyUI</td>
-            <td>Wan2.1 + Flux · :8188</td>
-            <td class="good">Keep Native</td>
-            <td>Avoids nvidia-container-toolkit root setup &amp; weight volume mounts</td>
-          </tr>
-          <tr class="${!isN?'hl':''}">
-            <td class="n">Per-project Postgres / Redis</td>
-            <td>50–200 MB · :5433+</td>
-            <td class="acc">Docker Container</td>
-            <td>Zero GPU needed; instant spin-up and <span class="mono">docker compose down -v</span> cleanup</td>
-          </tr>
-          <tr class="${!isN?'hl':''}">
-            <td class="n">Scrapers &amp; untrusted tools</td>
-            <td>deal-scout / price trackers</td>
-            <td class="acc">Docker Container</td>
-            <td>Sandboxes headless Chrome/Python deps away from <span class="mono">/home/jlbroughton</span></td>
-          </tr>
-        </tbody>
-      </table>
-    `, 'split verdict');
-  }
-  btns.forEach(b => b.addEventListener('click', () => {
-    stGpuPath = b.dataset.g;
-    btns.forEach(x => x.classList.toggle('on', x === b));
-    paint();
-  }));
-  paint();
-}
-
-/* ==================================================================
-   Step 8: If You Install It — Rootful vs. Rootless on This Box
-   ================================================================== */
-let stInstallMode = 'rootless';
-
-function viewRootlessDecision(){
-  return `
-    <div class="ctl-bar">
-      <label>Compare installation mode for jlbroughton</label>
-      <div class="seg" id="instSeg">
-        <button type="button" data-i="rootless" class="${stInstallMode==='rootless'?'on':''}">Rootless Docker (Matches Your No-Root Rule)</button>
-        <button type="button" data-i="rootful" class="${stInstallMode==='rootful'?'on':''}">Standard Rootful Docker (apt install docker.io)</button>
-        <button type="button" data-i="skip" class="${stInstallMode==='skip'?'on':''}">Keep Native Only (Current State)</button>
-      </div>
-      <span class="readout" id="instReadout"></span>
-    </div>
-    <div id="instFig"></div>
-    <div id="instChecklist"></div>
-  `;
-}
-
-function afterRootlessDecision(){
-  const btns = document.querySelectorAll('#instSeg button');
-  function paint(){
-    const isRl = stInstallMode === 'rootless';
-    const isRf = stInstallMode === 'rootful';
-
-    document.getElementById('instReadout').textContent = isRl
-      ? 'Daemon runs as jlbroughton (uid 1000) · socket in /run/user/1000'
-      : (isRf ? 'Daemon runs as root (uid 0) · docker group = root-equivalent' : '0 daemons · 0 sudo installs needed');
-
-    const svg = SVG('0 0 820 202', [
-      /* Col 1: Rootless */
-      `<rect x="14" y="10" width="256" height="182" rx="6" fill="none" stroke="${isRl?'var(--good)':'var(--line)'}" stroke-width="${isRl?1.5:1}"/>`,
-      txt(28, 30, '1. Rootless Docker', 'hd'),
-      box(28, 42, 228, 40, 'systemctl --user start docker', 'Runs as jlbroughton (uid 1000)', isRl ? 'boxg' : 'box'),
-      box(28, 90, 228, 40, '/etc/subuid 100000:65536', 'Already configured on this machine', isRl ? 'boxg' : 'box'),
-      box(28, 138, 228, 42, 'One missing prereq: uidmap', 'Needs one-time sudo apt install uidmap', isRl ? 'boxh' : 'box2'),
-
-      /* Col 2: Rootful */
-      `<rect x="282" y="10" width="256" height="182" rx="6" fill="none" stroke="${isRf?'var(--hot)':'var(--line)'}" stroke-width="${isRf?1.5:1}"/>`,
-      txt(296, 30, '2. Standard Rootful Docker', 'hd'),
-      box(296, 42, 228, 40, 'systemctl start docker (root)', 'Root-owned daemon always running', isRf ? 'boxe' : 'box'),
-      box(296, 90, 228, 40, '/var/run/docker.sock', 'Adding user to docker group = root', isRf ? 'boxe' : 'box'),
-      box(296, 138, 228, 42, 'Direct iptables + GPU hooks', 'Works with everything, highest privilege', isRf ? 'boxh' : 'box2'),
-
-      /* Col 3: Skip */
-      `<rect x="550" y="10" width="256" height="182" rx="6" fill="none" stroke="${stInstallMode==='skip'?'var(--accent)':'var(--line)'}" stroke-width="${stInstallMode==='skip'?1.5:1}"/>`,
-      txt(564, 30, '3. Stay Native (Today)', 'hd'),
-      box(564, 42, 228, 40, 'Ollama + ComfyUI + PG 18', 'All active workloads already work', stInstallMode==='skip' ? 'boxa' : 'box'),
-      box(564, 90, 228, 40, 'Zero background daemons', 'No bridge networks or image cache', stInstallMode==='skip' ? 'boxa' : 'box'),
-      box(564, 138, 228, 42, 'Wait for a concrete trigger', 'Install only when an app needs Compose', stInstallMode==='skip' ? 'boxg' : 'box2')
-    ].join(''));
-
-    document.getElementById('instFig').innerHTML = panel(
-      'Three paths on Ubuntu 26.04 — how each one aligns with your no-root, reversible preference',
-      svg,
-      stInstallMode
-    );
-
-    const rows = isRl ? [
-      row('Already present on host', '/etc/subuid & /etc/subgid have jlbroughton:100000:65536', 'ready', 'good'),
-      row('One-time root prerequisite', 'sudo apt install -y uidmap slirp4netns (provides newuidmap)', '1 apt call', 'hot'),
-      row('User-space install', 'curl -fsSL https://get.docker.com/rootless | sh (writes to ~/bin)', 'no root', 'good'),
-      row('Complete uninstall', 'systemctl --user stop docker && rm -rf ~/bin/docker* ~/.local/share/docker', '100% reversible', 'good')
-    ] : (isRf ? [
-      row('Install command', 'sudo apt install -y docker.io docker-compose-v2', 'root daemon', 'hot'),
-      row('Security trade-off', 'usermod -aG docker jlbroughton grants passwordless root equivalence', 'breaks no-root', 'bad'),
-      row('Filesystem footprint', 'Writes under /var/lib/docker and injects host iptables rules', 'system-wide', 'hot'),
-      row('When it is justified', 'Only if you must run GPU containers via nvidia-container-toolkit', 'rare here')
-    ] : [
-      row('What you do right now', 'Nothing — keep running Ollama, ComfyUI, Postgres 18, and Vite natively', '0 changes', 'good'),
-      row('When to revisit', 'When a new project in ~/Code needs an isolated Postgres/Redis or Compose stack', 'on demand', 'new'),
-      row('Best path when that day comes', 'Rootless Docker (or rootless Podman) using your existing 100000:65536 subuid range', 'reversible', 'good')
-    ]);
-
-    document.getElementById('instChecklist').innerHTML = panel(
-      isRl ? 'Rootless readiness on this computer' : (isRf ? 'Rootful trade-offs on this computer' : 'Why waiting is completely fine right now'),
-      rows.join(''),
-      'summary'
-    );
-  }
-  btns.forEach(b => b.addEventListener('click', () => {
-    stInstallMode = b.dataset.i;
-    btns.forEach(x => x.classList.toggle('on', x === b));
-    paint();
-  }));
-  paint();
-}
-
-/* ==================================================================
-   Steps configuration
-   ================================================================== */
-const STEPS = [
-  {
-    title: 'Your Machine Today: Native Everything',
-    narr: 'Right now every workload on this Ubuntu 26.04 machine runs directly in the host OS. Click each workload above: <b>Ollama (:11434)</b> is happy natively, while your <b>80 ~/Code apps</b>, <b>PostgreSQL 18 (:5432)</b>, and <b>ComfyUI</b> all share one global filesystem and dependency tree.',
-    view: viewHostToday,
-    after: afterHostToday
-  },
-  {
-    title: 'What a Container Is (And Why It Is Not a VM)',
-    narr: 'A virtual machine boots a second Linux kernel and reserves gigabytes of RAM up front. A <b>Docker container</b> is just a normal Linux process running on your existing <b>7.0.0-42-generic kernel</b> with a private view of files, ports, and PIDs — so five containers idle at ~40 MB total.',
-    view: viewNotAVm,
-    after: afterNotAVm
-  },
-  {
-    title: 'Namespaces & Cgroups: Already in Your Kernel',
-    narr: 'Docker does not invent containerization; it flips switches that are already compiled into your Linux kernel. Toggle between the <b>Container view</b> and <b>Host view</b> above to see how one process appears as root PID 1 inside its box while remaining an unprivileged PID on your host.',
-    view: viewNamespaces,
-    after: afterNamespaces
-  },
-  {
-    title: 'Layered Images (OverlayFS) vs. 80 Project Folders',
-    narr: 'You currently have <b>4.8 GB of node_modules</b> across ~/Code. Docker images stack read-only SHA256 layers with <b>OverlayFS</b>: ten containerized Node apps share a single 180 MB base image on disk, and each container adds only a thin writable layer that vanishes on <span class="mono">docker rm</span>.',
-    view: viewLayers,
-    after: afterLayers
-  },
-  {
-    title: 'How You Actually Work: Bind Mounts & Port Maps',
-    narr: 'Using Docker does not mean editing files inside a black box. A <b>bind mount (-v)</b> exposes your real <span class="mono">~/Code/deal-scout</span> folder inside the container, and a <b>port forward (-p)</b> wires <span class="mono">localhost:5183</span> straight to the container process.',
-    view: viewBindAndPorts,
-    after: afterBindAndPorts
-  },
-  {
-    title: 'Where It Helps You Most: Isolated Databases',
-    narr: 'Today a single native PostgreSQL 18 cluster on <span class="mono">:5432</span> serves everything (and your Linux user is not even a role in it). With Docker Compose, each project spins up its own disposable Postgres version on its own port and wipes it cleanly with <span class="mono">docker compose down -v</span>.',
-    view: viewPostgresIsolation,
-    after: afterPostgresIsolation
-  },
-  {
-    title: 'Where It Hurts You: The RTX 3090 GPU Boundary',
-    narr: 'Containers block access to <span class="mono">/dev/nvidia0</span> by default. Passing your <b>RTX 3090</b> into a container requires installing <b>nvidia-container-toolkit</b> as root. Because <b>Ollama (103 GB of models)</b> and <b>ComfyUI</b> already run natively against the GPU, containerizing them adds friction for zero speedup.',
-    view: viewGpuBoundary,
-    after: afterGpuBoundary
-  },
-  {
-    title: 'Your Decision Path: Rootless, Rootful, or Wait',
-    narr: 'Your machine already has <span class="mono">jlbroughton:100000:65536</span> configured in <span class="mono">/etc/subuid</span>. If you ever want Docker for throwaway databases or scrapers, <b>Rootless Docker</b> runs entirely under your user in <span class="mono">~/bin</span> after a one-time <span class="mono">uidmap</span> install — and uninstalls cleanly by deleting two folders.',
-    view: viewRootlessDecision,
-    after: afterRootlessDecision
-  }
-];
-
-/* ---------- navigation & playback ---------- */
-let current = -1, isPlaying = false, playTimer = null;
-const $ = id => document.getElementById(id);
-
-function buildSteps(){
-  $('stepTotal').textContent = STEPS.length;
-  $('steps').innerHTML = STEPS.map((s, i) =>
-    `<button class="step" type="button" data-step="${i}"><span class="n num">${i+1}</span><span>${esc(s.title)}</span></button>`
-  ).join('');
-  document.querySelectorAll('.step').forEach(b =>
-    b.addEventListener('click', () => { stopPlay(); show(+b.dataset.step); })
-  );
-}
-
-function show(i){
-  if (i < 0 || i >= STEPS.length) return;
-  current = i;
-  const s = STEPS[i];
-  $('title').textContent = s.title;
-  $('meta').textContent = 'Step ' + (i + 1) + ' of ' + STEPS.length;
-  $('stage').innerHTML = '<div class="views">' + s.view() + '</div>';
-  $('stage').scrollTop = 0;
-  if (s.after) s.after();
-  $('narr').innerHTML = s.narr;
-  document.querySelectorAll('.step').forEach(el => {
-    el.classList.toggle('on', +el.dataset.step === i);
-  });
-  const on = document.querySelector('.step.on');
-  if (on && on.scrollIntoView) on.scrollIntoView({ block:'nearest' });
-  $('cnt').textContent = (i + 1) + ' / ' + STEPS.length;
-  $('prog').style.transform = 'scaleX(' + ((i + 1) / STEPS.length) + ')';
-  $('prev').disabled = i === 0;
-  $('next').disabled = i === STEPS.length - 1;
-}
-
-function stopPlay(){
-  isPlaying = false;
-  if (playTimer) clearTimeout(playTimer);
-  playTimer = null;
-  $('play').textContent = 'Play';
-}
-function next(){ if (current < STEPS.length - 1) show(current + 1); }
-function prev(){ if (current > 0) show(current - 1); }
-function playLoop(){
-  if (!isPlaying) return;
-  if (current >= STEPS.length - 1){
-    playTimer = setTimeout(() => { if (!isPlaying) return; show(0); playTimer = setTimeout(playLoop, 2800); }, 2800);
-    return;
-  }
-  show(current + 1);
-  playTimer = setTimeout(playLoop, 2800);
-}
-function toggle(){
-  if (isPlaying){ stopPlay(); return; }
-  isPlaying = true;
-  $('play').textContent = 'Pause';
-  if (current >= STEPS.length - 1) show(0);
-  playTimer = setTimeout(playLoop, 500);
-}
-
-buildSteps();
-$('next').addEventListener('click', () => { stopPlay(); next(); });
-$('prev').addEventListener('click', () => { stopPlay(); prev(); });
-$('play').addEventListener('click', toggle);
-$('reset').addEventListener('click', () => { stopPlay(); show(0); });
-document.addEventListener('keydown', e => {
-  if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON')) return;
-  if (e.key === 'ArrowRight'){ stopPlay(); next(); }
-  else if (e.key === 'ArrowLeft'){ stopPlay(); prev(); }
-  else if (e.key === ' '){ e.preventDefault(); toggle(); }
-});
-show(0);
-</script>
+  <script>
+    (function () {
+      var MODES = {
+        today: {
+          text: '<b>Today (All Native):</b> All 4 workloads share one host filesystem, global Node binary, and single Postgres 18 cluster on :5432.',
+          cmd: 'docker: not installed · 0 daemons running',
+          card: 'card-kernel',
+          slots: [
+            { title: '80 ~/Code Projects', sub: 'global Node · 4.8 GB deps', tag: 'shared host /usr', kind: 'plain' },
+            { title: 'PostgreSQL 18 (:5432)', sub: 'single shared cluster', tag: 'shared /var/lib/pg', kind: 'plain' },
+            { title: 'Ollama (:11434)', sub: '103 GB models · RTX 3090', tag: 'direct GPU', kind: 'ok' },
+            { title: 'ComfyUI (:8188)', sub: 'Wan2.1 + Flux fp8', tag: 'direct GPU', kind: 'ok' }
+          ]
+        },
+        hybrid: {
+          text: '<b>Practical Split:</b> Keep Ollama and ComfyUI native on the RTX 3090; put throwaway Postgres DBs and untrusted scrapers in disposable containers.',
+          cmd: 'rootless-ready via /etc/subuid (jlbroughton:100000:65536)',
+          card: 'card-gpu',
+          slots: [
+            { title: 'Scrapers / Pinned Apps', sub: 'own Node + -v ~/Code:/app', tag: 'container wall', kind: 'acc' },
+            { title: 'Project DBs (:5433+)', sub: 'postgres:16 / pgvector', tag: 'container wall', kind: 'acc' },
+            { title: 'Ollama (:11434)', sub: '103 GB models · RTX 3090', tag: 'native on host', kind: 'ok' },
+            { title: 'ComfyUI (:8188)', sub: 'Wan2.1 + Flux fp8', tag: 'native on host', kind: 'ok' }
+          ]
+        },
+        db: {
+          text: '<b>Throwaway Postgres:</b> Your native :5432 cluster stays untouched while a project gets its own isolated Postgres container and volume.',
+          cmd: 'docker run --rm -p 5433:5432 -e POSTGRES_PASSWORD=dev postgres:18',
+          card: 'card-fs',
+          slots: [
+            { title: 'Native Moto Pass DB', sub: '127.0.0.1:5432 (untouched)', tag: 'native on host', kind: 'ok' },
+            { title: 'restaurant-website DB', sub: 'container :5433 -> 5432', tag: 'isolated volume', kind: 'acc' },
+            { title: 'Scratch pgvector DB', sub: 'container :5434 -> 5432', tag: 'wipes on docker rm', kind: 'acc' },
+            { title: 'Ollama + ComfyUI', sub: ':11434 & :8188 on 3090', tag: 'native on host', kind: 'ok' }
+          ]
+        },
+        node: {
+          text: '<b>Pin a Node App:</b> VS Code edits ~/Code/deal-scout on your real disk (-v), while Node and npm run inside a disposable container (-p 5183:3033).',
+          cmd: 'docker run --rm -v ~/Code/deal-scout:/app -p 5183:3033 node:20-slim',
+          card: 'card-fs',
+          slots: [
+            { title: 'VS Code (Host)', sub: 'edits ~/Code/deal-scout', tag: 'bind mount (-v)', kind: 'ok' },
+            { title: 'deal-scout Container', sub: 'pinned Node 20 + /app', tag: 'port -p 5183:3033', kind: 'acc' },
+            { title: 'Other 79 ~/Code Apps', sub: 'unmodified on host disk', tag: 'untouched', kind: 'plain' },
+            { title: 'Ollama + ComfyUI', sub: 'direct RTX 3090 access', tag: 'native on host', kind: 'ok' }
+          ]
+        }
+      };
+
+      var currentMode = 'hybrid';
+      var wrap = document.getElementById('diagramWrap');
+      var modeText = document.getElementById('modeText');
+      var modeCmd = document.getElementById('modeCmd');
+      var segBtns = document.querySelectorAll('#modeSeg button');
+      var tableRows = document.querySelectorAll('#workloadTable tbody tr');
+
+      function esc(s) {
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      }
+
+      function render(modeKey) {
+        currentMode = modeKey;
+        var m = MODES[modeKey];
+        modeText.innerHTML = m.text;
+        modeCmd.textContent = m.cmd;
+
+        segBtns.forEach(function (b) {
+          b.setAttribute('aria-pressed', b.getAttribute('data-mode') === modeKey ? 'true' : 'false');
+        });
+
+        ['card-kernel', 'card-fs', 'card-gpu'].forEach(function (id) {
+          var el = document.getElementById(id);
+          if (el) el.classList.toggle('active-card', id === m.card);
+        });
+
+        tableRows.forEach(function (r) {
+          r.classList.toggle('row-on', r.getAttribute('data-pick') === modeKey);
+        });
+
+        var parts = [];
+        var w = 1040, h = 216;
+        var colW = 236, gap = 18, startX = 20;
+
+        m.slots.forEach(function (s, i) {
+          var x = startX + i * (colW + gap);
+          var cx = x + colW / 2;
+          var slotCls = s.kind === 'acc' ? 'slot containerized' : (s.kind === 'ok' ? 'slot native-ok' : 'slot');
+          var tagCls = s.kind === 'acc' ? 't-tag acc' : (s.kind === 'ok' ? 't-tag ok' : 't-tag');
+          var wireCls = s.kind === 'acc' ? 'wire acc' : (s.kind === 'ok' ? 'wire ok' : 'wire');
+
+          parts.push('<rect class="' + slotCls + '" x="' + x + '" y="12" width="' + colW + '" height="86" rx="12"/>');
+          parts.push('<text class="' + tagCls + '" x="' + (x + 14) + '" y="33">' + esc(s.tag) + '</text>');
+          parts.push('<text class="t-title" x="' + (x + 14) + '" y="56">' + esc(s.title) + '</text>');
+          parts.push('<text class="t-sub" x="' + (x + 14) + '" y="77">' + esc(s.sub) + '</text>');
+          parts.push('<line class="' + wireCls + '" x1="' + cx + '" y1="98" x2="' + cx + '" y2="124"/>');
+        });
+
+        /* Shared Linux Kernel bar */
+        parts.push('<rect class="kernel-bar" x="20" y="124" width="998" height="40" rx="10"/>');
+        parts.push('<text class="t-title" x="38" y="149">Shared Linux Kernel 7.0.0-42-generic (cgroups v2 + namespaces)</text>');
+        parts.push('<text class="t-sub" x="1000" y="149" text-anchor="end">1 kernel in RAM · direct syscalls</text>');
+
+        /* Hardware bar */
+        parts.push('<rect class="shared-bar" x="20" y="172" width="998" height="34" rx="10"/>');
+        parts.push('<text class="t-sub" x="38" y="194">Hardware: 16-Core CPU · 61 GiB RAM (55 GiB free) · 913 GB NVMe (627 GB free) · NVIDIA RTX 3090 (24 GB VRAM)</text>');
+
+        wrap.innerHTML = '<svg class="diagram" viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="Architecture diagram showing workloads over your shared Linux kernel">' + parts.join('') + '</svg>';
+      }
+
+      segBtns.forEach(function (b) {
+        b.addEventListener('click', function () {
+          render(b.getAttribute('data-mode'));
+        });
+      });
+
+      tableRows.forEach(function (r) {
+        r.addEventListener('click', function () {
+          render(r.getAttribute('data-pick'));
+        });
+      });
+
+      render('hybrid');
+    })();
+  </script>
 </body>
 </html>
